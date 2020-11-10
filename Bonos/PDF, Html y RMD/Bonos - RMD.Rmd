@@ -1,0 +1,498 @@
+---
+title: "Bonos - RMD"
+author: "Sergio Casares"
+date: "8/11/2020"
+output:
+  html_document:
+    toc: yes
+    df_print: paged
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+    toc: yes
+---
+
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+# 1. Introducción al trabajo
+
+El objetivo que perseguimos en el presente trabajo es, simplemente, efectuar una comprobación empírica mediante la aplicación del ACP a un conjunto de 978 observaciones de los rendimientos de 10 bonos norteamericanos a distintos plazos entre el 2 de enero de 1995 y el 30 de septiembre de 1998. No pretendemos nada más que verificar si, tal y como plantean los estudios teóricos, puede establecerse una estructura subyecente que sintetice y agrupe los distintos plazos en virtud de sus características comunes. 
+
+# 2.Importamos librerias y el Dataset
+```{r}
+library(readr)
+library(glmnet)
+library(tidyverse)
+library(fBasics)
+library(car)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(MASS)
+library(corrplot)
+library(PerformanceAnalytics)
+library(gvlma)
+library(tinytex)
+library(devtools)
+library(rsample)
+library(tidyr)
+library(broom)
+library(flextable)
+library(mgcv)
+library(reshape2)
+library(rmdformats)
+
+library(factoextra)
+library(FactoMineR)
+
+bonos <- read_delim("ACPTIUSD.csv", ";", 
+                       escape_double = FALSE, trim_ws = TRUE)
+head(bonos)
+```
+
+
+# 3. Limpieza y Transformación del Dataser y Analisis Exploratorio
+
+```{r}
+#Cambiamos el formato de las fechas del dataset
+
+bonos = bonos[complete.cases(bonos), ]
+bonos$Fechas = as.Date(bonos$X1, format = "%d/%m/%Y")
+bonos=bonos[,2:12]
+
+## Función melt de reshape2: "estira" el data frame
+
+bonos_m <- melt( bonos )
+View(bonos_m)
+
+# Lo aplicamos al TIUSD2, empleando como indicador Fechas
+data_long = melt(bonos, id="Fechas")
+ggplot(data=data_long, aes(x= Fechas, y=value,  color=variable)) +
+  geom_point(alpha = 0.3,  position = position_jitter()) + 
+  labs(y = "Tipo", colour="Bono")
+
+
+#Estructura del Dataset
+
+#Training - observaciones activas
+bonos_act <- bonos[1:750,1:9]
+fechas_act <- bonos[1:750, 11]
+bonos_act <- cbind(bonos_act, fechas_act)
+dim(bonos_act)
+View(bonos_act)
+
+#Testing - observaciones suplementarias
+bonos_sup <- bonos[750:783, 10]
+dim(bonos_sup)
+View(bonos_sup)
+
+#Summary
+#1
+summary(bonos_act)
+#2
+bonos_act_sum <- bonos_act[-10]
+
+bonos_act_stats = data.frame(
+  Min = apply(bonos_act_sum, 2, min, na.rm=TRUE), # mín
+  Q1 = apply(bonos_act_sum, 2, quantile, 1/4, na.rm=TRUE), # 1er cuartil
+  Med = apply(bonos_act_sum, 2, median, na.rm=TRUE), # mediana
+  Mean = apply(bonos_act_sum, 2, mean, na.rm=TRUE), # media
+  SD = apply(bonos_act_sum, 2, sd), # Desviación típica
+  Q3 = apply(bonos_act_sum, 2, quantile, 3/4, na.rm =TRUE), # 3er cuartil
+  Max = apply(bonos_act_sum, 2, max, na.rm=TRUE) # Máx
+)
+bonos_act_stats=as.data.frame(round(bonos_act_stats, 1))
+bonos_act_stats
+```
+  Como se puede observar en el gráfico anterior, podemos ver la evolución del tipo de interés de cada bono o depósito a lo largo de 1995 a 1998. A partir de mediados de 1995 podemos ver una convergencia de los tipos de interés (aunque se puede observar que el tipo de interés es mayor en proporción a la duración del mismo).
+  A partir de 1996 se observa una clara diferenciación de los tipos de interes y permanece esa tendencia hasta 1998 donde vuelven a converger.
+
+# 4.Preguntas del Trabajo
+
+### 4.1. Preguntas del Trabajo ¿Tiene sentido llevar a cabo, en este caso, un análisis de componentes principales? Para justificarlo, deberá llevar a cabo las pruebas que estime oportunas, como, por ejemplo el análisis de la matriz de correlaciones, el del determinante de dicha matriz,  la prueba de esfericidad de Bartlett, el KMO o el MSA.
+
+El análisis de ACP tiene como finalidad crear un algoritmo de aprendizaje automático no supervisado que intenta reducir la dimensionalidad (número de características) dentro de un conjunto de datos mientras retiene toda la información posible. 
+Esto se realiza buscando un nuevo conjunto de características denominado componentes, que son los compuestos de las características originales que no son correlativas entre sí.
+
+Para realizar un debido análisis ACP, recurriremos a:
+
+- Análisis de la matriz de correlación
+
+- Análisis de determinantes de la matriz de correlación
+
+- Prueba de esfericidad de Bartlett
+
+- Análisis KMO
+
+#### Análisis de la matriz de correlación
+
+Sirve para determinar si el valor obtenido (del coecifiente de correlación) muestra que las variables X e Y están relacionadas en realidad o tan solo presentan dicha relación como consecuencia del azar.
+
+Para este apartado crearemos la matriz de correlaciones y la visualizaremos con la finalidad de:
+
+  - Comprobar la relación que existe entre el resto de variables independientes con el fin de generar subgrupos de variables cuya correlación sea parecida entre ellas.
+
+```{r}
+#Creamos la matriz de correlaciones
+
+cor.mat = round(cor(bonos_act_sum),2)
+cor.mat
+
+#Visualizamos la matriz de correlaciones
+
+#Visualización original
+require(corrplot)
+corrplot(cor.mat, type="lower", order="original", 
+         tl.col="black", tl.cex=0.7, tl.srt=45)  # las correlaciones positivas en azul, las negativas en rojo
+#Visualización por cluster
+corrplot(cor.mat, type="full", order="hclust", addrect = 3,
+         tl.col="black", tl.cex=0.7, tl.srt=45) #permite visualizar clusters
+#...  y también podemos visualizar un chart de correlaciones con el paquete PerformanceAnalytics, que cargamos
+#install.packages("PerformanceAnalytics")
+```
+
+Como se puede observar en las gráficas anteriores, se puede observar que existe una clara correlación (positiva) entre las distintas variables.
+
+Por otra parte, existe un aumento de la correlación entre variables que presentan duraciones parecidas, es por eso, que para el ACP, podemos afirmar que podríamos agrupas variables en función de su correlación (y por ense, de su duración).
+
+En el segundo gráfico, hemos agrupado los 9 tipos de bonos y depósitos en tres grupos:
+
+  - Muy corto plazo: depósitos a uno y tres meses
+  
+  - Corto plazo: depósitos a 6 y 12 meses
+  
+  - Medio-Largo plazo: bonos a 2, 3, 4, 5 y 7 años
+
+
+#### Mapa de correlacion compuesta:
+
+En la siguiente ilustración, observamos en la diagonal la distribución de los tipos de interés de cada una de las variables. Por lo general presentan una distribución normal, aunque con cierta skewness para algunos casos, como el del bono a 7 años.
+
+En el triángulo inferior, aparecen los diagramas de dispersión por cada uno de los pares de variables. En este apartado, los depósitos de uno y tres meses presentan más variabilidad de los datos frente al resto de variables, por el otro lado, los bonos que presentan una mayor duración tienen una distribucuión de los datos más homogénea (lo que podrían ser entre el conjunto de bonos que pertenecen al medio-largo plazo).
+
+En el triángulo superior aparecen los valores de la correlación junto a unas estrellas que representan el nivel de significación (p-value) de cada una de las variables, a más distacia de duraciones, menor valor de correlación; pero en general, todos tienen un nivel alto de significación.
+
+
+
+```{r}
+require(PerformanceAnalytics)
+chart.Correlation(bonos_act_sum, histogram=TRUE, pch=19)
+
+```
+
+
+#### Mapa de calor de las correlaciones:
+
+Este mapa de correlaciones trata de agrupar las diferentes variables según su nivel de correlación en función del número de divisiones que queremos realizar (hasta un máximo de 9, ya que carece de sentido agrupar las variables de una en una).
+
+Al igual que en la gráfica de agrupación de variables, existe una clara agrupación en función de la duración de los activos.
+
+```{r}
+col = colorRampPalette(c("red", "white", "blue"))(20) #definimos la paleta de colores;
+heatmap(x = cor.mat, col = col, symm = TRUE)
+```
+
+
+#### Matriz de correlaciones parciales
+
+La matriz de correlación parcial pretende calcular la relación entre dos variable, pero eliminando el efecto de una tercera variable.
+
+La verdad es que no entiendo mucho su significado, pero se encarga de ilustrar el coecifiente de correlación de Pearson, junto con su p-valor y su estadístico t.
+
+```{r}
+
+require(ppcor)
+
+p.cor.mat=pcor(bonos_act_sum)
+p.cor.mat
+```
+
+
+#### Determinante de la matriz de correlación
+
+Un determinante bajo, indica alta multicolinealidad entre las variables. De ser igual a cero, indicaría que algunas de las variables son linealmente dependientes y no se podrían realizar ciertos cálculos necesarios para los procedimientos multivariados. 
+
+```{r}
+det(cor.mat)
+```
+
+En este caso observamos que es muy cercano a 0, lo que sugiere un alto nivel de colinealidad en el conjunto de variables involucradas en la matriz.
+
+
+#### Prueba de esfericidad de Bartlett
+
+Se utiliza para probar la Hipótesis Nula que afirma que las variables no están correlacionadas en la población. Es decir, comprueba si la matriz de correlaciones es una matriz de identidad.
+
+Prueba de esfericidad de Bartlett:
+
+Si Sig. (p-valor) < 0.05 aceptamos H0 (hipótesis nula) > se puede aplicar el análisis factorial.
+
+Si Sig. (p-valor) > 0.05 rechazamos H0 > no se puede aplicar el análisis factorial.
+
+```{r}
+bartlett.test(bonos_act_sum)
+
+```
+
+En este caso el valor es cercano a cero, por lo tanto, se rechaza la Hipótesis Nula y se continúa con el Análisis.
+
+#### KMO o el MSA.
+
+El test KMO relaciona los coeficientes de correlación,  observados entre las variables. Cuanto más cerca de 1 tenga el valor obtenido del test KMO, implica que la relación entre las variables es alta.
+
+ - Si KMO ≥ 0.9, el test es muy bueno;
+ 
+ - notable para KMO ≥ 0.8; 
+ 
+ - mediano para KMO ≥ 0.7; 
+ 
+ - bajo para KMO ≥ 0.6; 
+ 
+ - uy bajo para KMO < 0.5.
+
+```{r}
+library(psych)
+KMO(bonos_act_sum)
+```
+
+La media de la relación entre las variables es de 0.87 por lo que se puede afirmar que la relación entre variables es alta, lo que implica que se puede aplicar el analisis factorial a las variables utilizadas.
+
+
+### 4.2 ¿Cuántos componentes permitirían explicar, adecuadamente,  la estructura subycente de los tipos de interés aquí analizados? Justifique su respuesta empleando, por ejemplo, las pruebas de la varianza explicada o del gráfico de sedimentación.
+
+### PRUEBA DE LA VARIANZA EXPLICADA
+
+Este apartado tiene como finalidad el poder explicar el porcentaje varianza explicada de cada componente (variables o tipo de activo) con respecto del total con el fin de poder elegir el número de componentes que pueden explicar la mayor varianza posible con el menor número de variables.
+
+También hablaremos de las componentes principales, que no son más que los nuevos ejes proyectados a partir de los ejes originales. Los nuevos puntos generados (los puntos de los ejes principales que se transforman en puntos de los ejes proyectados) se denominan puntuaciones de las componentes principales.
+
+```{r}
+acp = PCA(bonos_act_sum, graph=T) 
+acp
+# extraemos los autovalores y observamos la varianza explicada
+
+acp$eig # con FacotMineR
+get_eig(acp) #con factoextra
+
+```
+Información clave de las gráficas anteriores:
+
+  - La gráfica de puntos individual explica para cada punto, el pocentaje explicado por la dimension uno y dos.
+  
+  - El gráfico de 'PCA graph of Variables' indica las coordenadas de cada vaiable respecto de cada variables, en el caso del depósito a un mes, la coordenada respecto de la dimensión 1 es del 0,52 y del 0,80 respecto de la segunda dimensión.
+  
+  - Con una sola dimensión (o eje) (x), se puede explicar el 82,22% de la varianza total, pero no se llega a explicar toda la varianza, para ello, utilizamos la siguiente dimensión (o eje) que recoja el máximo de varianza no explicada por la dimensión 1; la dimensión 2 (eje x e y), recoge el 16,78% del total de la varianza que la dimensión 1 no ha podido explicar. Uniendo ambas dimensiones se llega al 99,003% de la varianza explicada.
+
+
+
+#### Hacemos el screeplot del porcentaje de varianza explicada por cada una de las dimensiones.
+
+```{r}
+
+fviz_eig(acp, addlabels=TRUE, hjust = -0.3)+
+  labs(title="Scree plot / Gr?fico de sedimentaci?n", x="Dimensiones", y="% Varianza explicada")
+```
+
+Se puede afirmar que con utilizar solo dos dimensiones podemos explicar la varianza del modelo, porque la tercera dimensión aporta poca varianza explicada al total (menos del 1%).
+
+
+#### Relación de las variables con los CCPP:
+
+  - var$coord <- indica las coordenadas de cada variable respecto de su dimensión
+  - var$contrib <- indica la contribución de cada variable a los Componentes Principales 
+  - var$cor <- correlaciones de las variables
+  - var$cos2 <- calidad de la representación para las variables sobre el mapa factorial
+
+```{r}
+var=get_pca_var(acp) #factoextra
+var
+
+var$coord 
+var$contrib  
+var$cor 
+var$cos2 
+```
+
+
+#### Gráficas de:
+  - Coordenadas de cada variable respecto de sus dimensiones
+  
+  - Contribución de las variables a cada dimensión
+  
+  - Calidad de la representación para las variables sobre el mapa factorial
+
+```{r}
+# Gr?fico por defecto de las variables en el espacio de dos CCPP ...
+fviz_pca_var(acp, col.var = "steelblue")
+
+## ... del que modificamos los colores para visualizar mejor la contribuci?n de la variable en el eje principal
+
+fviz_pca_var(acp, col.var="contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), repel=TRUE) +
+  labs(title="Mapa de ejes principales")+
+  theme_minimal()
+
+fviz_pca_var(acp, col.var = "cos2",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), 
+             repel = TRUE # Avoid text overlapping
+)
+```
+
+### Gráficas de:
+
+  - Contribución de las variables a la dimensión 1
+  - Contribución de las variables a la dimensión 2
+  - Contribución acumulada de las variables a ambas dimensiones
+
+```{r}
+# Contribuci?n de las variables a cada uno de los ejes principales
+## eje 1
+fviz_contrib(acp, choice="var", axes = 1 )+
+  labs(title = "Contribuciones a la Dim 1")
+## eje 2
+fviz_contrib(acp, choice="var", axes = 2 )+
+  labs(title = "Contribuciones a la Dim 2")
+
+## ambos ejes
+fviz_contrib(acp, choice="var", axes = 1:2)+
+  labs(title = "Contribuciones a las dos dimensiones")
+```
+
+#### Coordenadas de los individuos (observaciones) respecto de cada dimensión
+
+```{r}
+# Extraccción de resultados para individuos
+#-----------------------------------------
+ind = get_pca_ind(acp)
+ind
+
+#Coordenadas de los individuos / observaciones en el plano de los ejes principales
+head(ind$coord) 
+```
+
+#### Visualización del apartado anterior:
+
+```{r}
+fviz_pca_ind(acp, repel = T, col.ind = "cos2")+
+  scale_color_gradient2(low="blue", mid="white",
+                        high="red", midpoint=0.6)+
+  theme_minimal()
+```
+
+
+### GRAFICO DE SEDIMENTACION
+
+La gráfica de sedimentación muestra el número del componente principal versus su valor propio correspondiente. La gráfica de sedimentación ordena los valores propios desde el más grande hasta el más pequeño. Los valores propios de la matriz de correlación son iguales a las varianzas de los componentes principales.
+
+La gráfica de sedimentación se utiliza para seleccionar el número de componentes que se usarán con base en el tamaño de los valores propios.
+
+```{r}
+
+scree(cor.mat,main ="Grafico_de_Sedimentacion")
+```
+Esta gráfica de sedimentación muestra que los valores propios comienzan a formar una línea recta después del tercer componente principal. Por lo tanto, los componentes principales restantes explican una proporción muy pequeña de la variabilidad (cercana a cero) y probablemente carezcan de importancia.
+
+
+### 4.3. Finalmente, ¿tiene sentido llevar a cabo una rotación de las variables subyacentes? Para responder, lleva a cabo una rotación Varimax, por ejemplo.
+
+#### Varimax
+
+Método de rotación ortogonal que minimiza el número de variables que tienen saturaciones altas en cada factor. Simplifica la interpretación de los factores.
+
+```{r}
+
+factanal(bonos_act_sum, factors = 3, rotation = 'varimax')
+```
+Rotaciones como las que produce varimax facilitan la interpretabilidad de los factores. Tienden a aplastar los coeficientes pequeños y a hacer crecer los grandes de manera que sus perfiles pueden asociarse más fácilmente a un subconjunto concreto de variables. 
+
+
+```{r}
+library(pls)
+library(imputeTS)
+
+rm(list=ls())
+
+bonos <- read_delim("ACPTIUSD.csv", ";", 
+                    escape_double = FALSE, trim_ws = TRUE)
+
+bonos = bonos[complete.cases(bonos), ]
+bonos
+bonos$Fechas = as.Date(bonos$X1, format = "%d/%m/%Y")
+
+TIUSD <- bonos
+
+training <- TIUSD[1:750, 2:11]
+test <- TIUSD[750:783, 2:11]
+
+colnames(training)[10] <- 'IRS_10Y'
+colnames(test)[10] <- 'IRS_10Y'
+
+
+set.seed(123)
+modelo_pcr <- pcr(formula = IRS_10Y ~ ., data = training, scale. = TRUE, validation = "CV")
+modelo_pcr_CV <- MSEP(modelo_pcr, estimate = "CV")
+min(modelo_pcr_CV$val)
+
+# Test-MSE
+predicciones <- predict(modelo_pcr, newdata = test, ncomp = 2)
+test_mse <- mean((predicciones - test$IRS_10Y)^2)
+test_mse
+```
+
+
+
+
+## 4.4.Por último, deberá elaborar las oportunas conclusiones.
+
+__PREGUNTA 1:__
+
+El ACP es una técnica utilizada para describir un conjunto de datos en términos de nuevas variables («componentes») no correlacionadas.
+El ACP se emplea sobre todo en análisis exploratorio de datos y para construir modelos predictivos. 
+
+Como hemos podido observar, las componentes no se encontraban correlacionadas, por lo que se podría efectuar un ACP sin problemas, además la finalidad de este trabajo era la de predecir los valores del bono a 10 años (finalidad compartida también por la técnica ACP).
+
+  - Observamos que se pueden agrupar las variables en función de su correlación
+  
+  - Según el Determinante de la matriz de correlación, que es cercano a 0 indicaría que existe multicolinealidad y no se podría seguir con el estudio, pero hemos usado otros modelos de validación que si nos indican que el método ACP se puede realizar.
+  
+  - La Prueba de esfericidad de Bartlett nos indica, con un valor cercano a 0 que existe correlación con la variable independiente.
+  
+  - El test KMO tiene un valor alto, lo que implica que se puede aplicar el analisis factorial a las variables utilizadas.
+
+__PREGUNTA 2:__
+
+  - Como se ha podido comprobar en el estudio de la varianza y la gráfica de sedimentación, el número idóneo de componentes debe ser 2, los cuales son capaces de ecplicar el 99,003% de la varianza total.
+
+__PREGUNTA 3:__
+
+  - Varimax rota los factores obtenidos, al rotarlos, hemos pasado de una varianza explicada con la primera dimensión de 82,2% al 66,5% (lo que perdemos un 15,7% de varianza explicada). Y si tenemos en cuenta el segundo factor, la varianza explicada (acumulada) baja del 99,003% al 98,4%. Por lo qu eno tiene sentido realizar la rotación Varimax.
+  
+  
+
+
+
+# 5. Bibliografía
+
+
+Análisis de Componentes Principales en R:
+
+  - http://rstudio-pubs-static.s3.amazonaws.com/2387_ee73f69e5ba04498a93e5bb12f636591.html
+
+  - https://www.cienciadedatos.net/documentos/35_principal_component_analysis
+
+  - https://rpubs.com/Csanchez15/551258
+
+  - https://rpubs.com/Joaquin_AR/287787
+
+Estadística y Machine Learning con R:
+
+  - https://rpubs.com/PacoParra/293407#:~:text=La%20prueba%20de%20esfericidad%20de,modelo%20factorial%20no%20ser%C3%ADa%20pertinente.
+
+  - Introducción a los Métodos Multivariantes:
+
+  - https://rpubs.com/marcelo-chavez/multivariado_1
+
+Interpretar todos los estadísticos y gráficas para Análisis de componentes principales:
+
+  - https://support.minitab.com/es-mx/minitab/18/help-and-how-to/modeling-statistics/multivariate/how-to/principal-components/interpret-the-results/all-statistics-and-graphs/#:~:text=La%20gr%C3%A1fica%20de%20sedimentaci%C3%B3n%20muestra%20el%20n%C3%BAmero%20del%20componente%20principal,varianzas%20de%20los%20componentes%20principales.
