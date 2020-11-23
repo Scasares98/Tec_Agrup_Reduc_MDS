@@ -1,0 +1,259 @@
+---
+title: "Cluster coches del Jefe"
+author: "Sergio Casares"
+date: "23/11/2020"
+output:
+  pdf_document:
+    toc: true
+  html_document:
+    df_print: paged
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(out.width = '80%', out.height='80%', fig.align = "center") 
+```
+
+
+\newpage
+
+# 1. Introducción al trabajo
+
+Asignar de la forma más eficiente y consistente los distintos vehículos, agrupándolos en virtud de las características que ud. considere oportunas. 
+
+El objetivo de este trabajo será el de satisfacer la necesidad de nuestro jefe de 'clusterizar' los coches adquiridos en un número determinado de grupos con el fin de que estos puedan ser guardados en hasta un máximo de 10 garajes que tiene nuestro jefe.
+
+# 2. Selección a priori de variables y número de clústers
+
+__Selección de variables:__
+
+A priori (y con base en el _análisis de datos_) eliminamos las siguientes variables:
+
+* Aceleración (acelerac) ->  Por su alta proporción de valores nulos 46 / 125 (38 %), además de su alta correlación con _potencia_ y _velocidad_ (por encima de 0.8).
+
+* Tiempo de aceleración (acel2) -> El tiempo de aceleración es una variable que aporta poca información a la hora de poder agrupar los coches (solo 3 coches tienen un valor de 1 y 122 tienen un valor de 2), por lo que optamos por eliminar dicha variable del análisis.
+
+* Potencia (potencia)-> Realizando una matriz de correlaciones, observamos que la correlación entre __velocidad__ y __potencia__ es de 0.85, lo que indica que la relación lineal entre ambas variables es muy alta y debido a su gran similitud (y que puede generar multicolinealidad), se decide a eliminar la __potencia__ (ya que también presenta una correlación alta con el __precio__, __cilindradas__, __centímetros cúbicos__ y __consumo urbano__), todas por encima del 0.7 de correlación.
+
+A priori (y con base en el _análisis financiero y de costes_) eliminamos las siguientes variables:
+
+La colección se centra en todo terrenos clásicos (lo que indica que su finalidad es más de coleccionista que de uso personal y diario), desconocemos la finalidad de nuestro jefe (coleccionar para tenerlos almacenados en sus garajes o a lo mejor tiene la visión futura de venderlos a un mayor precio (a modo de inversión a largo plazo)).
+
+* "cons90","cons120","consurb" -> entiendo que el consumo en gasolina no debe ser un factor discriminante a tener en cuenta a la hora de segmentar ni a la hora de su potencial venta (a nadie le interesa lo que consuma el coche, el que compra este tipo de coches no se fija en lo que le costará la gasolina).
+
+* "plazas" -> por el mismo motivo que el anterior, es un coche de coleccionista, no de uso diario, el coleccionista se fija en el coche, no en el número de plazas que tenga mi todo-terreno clásico.
+
+* "rpm" -> existen variables que se valoran más a la hora de comprar coches de colección, como los cc y el número de cilindros del motor.
+
+__Selección final de variables:__
+
+Decidimos seleccionar con su precio de venta al público (pvp), el número de cilindros (cilindro), su velocidad máxima (velocida), su peso (peso) y los centímetros cúbicos del motor (cc).
+
+__Selección del número de clústers:__
+
+Aunque el análisis el análisis debe realizarse por similitudes entre observaciones, pero si tenemos en cuenta la estrategia y el enfoque económico a la hora de hacer el reparto de los coches, deberíamos tener las siguientes condiciones en cuenta:
+
+* El peso del vehículo afecta a la hora realizar el transporte (unos coches necesitarán un transporte con más cuidado o con camiones más pesados, lo que encarece el desplazamiento).
+
+* Hay que tener en cuenta el número de coches que puede desplazar el camión (entre 6 y 10), para que cada clúster tenga un número múltiplo de coches y así evitar desplazamientos del camión ineficientes (que no esté lleno).
+
+Por lo tanto, el número de clúster será aquél que minimice el coste de transporte, favoreciendo agrupaciones donde el tamaño de cada grupo pueda hacer que los camiones de desplazamientos vayan lo suficientemente llenos.
+
+
+```{r}
+library(readr)
+library(factoextra)
+library(ggplot2)
+library(cluster)
+library(gridExtra)
+library(corrplot)
+library(haven)
+library(dplyr)
+library(PerformanceAnalytics)
+library(FactoMineR)
+library(gplots)
+library(graphics)
+library(grid)
+library(gridExtra)
+library(ggplotify)
+```
+
+```{r}
+data <- read_sav("tterreno.sav")
+data <- data.frame(data[,-1], row.names = make.names(data$modelo, unique = T))
+data <- data[-1]
+
+```
+
+```{r}
+
+#quitamos otras variables
+
+
+lista_variables_1 = c("pvp","cc","velocida",'peso','cilindro')
+
+data_num <- data[lista_variables_1]
+data_num <- as.data.frame(data_num)
+data_num <- na.omit(data_num)
+
+
+```
+
+# 3. Desarrollo del trabajo
+
+## 3.1. Análisis Factorial de Correspondencias
+
+De este breve análisis podemos discernir que dos dimensiones son más que suficientes para poder explicar la varianza de toda la información disponible, además, los centímetros cúbicos y el peso son las dos variables que más aportan a explicar la varianza total, lo que nos podría indicar que la agrupación de los coches pudiera seguir alguna de estas dos variables como método decisorio.
+
+```{r}
+data_num_table <- as.table(as.matrix(data_num))
+
+chisq <- chisq.test(data_num_table)
+
+data_num_table_afc = CA(data_num_table, graph=FALSE)
+
+autov = get_eigenvalue(data_num_table_afc)
+traza = sum(autov[,1]) 
+cor.coef = sqrt(traza)
+
+autoval = get_eigenvalue(data_num_table_afc)
+
+#screeplot:
+x1 <- fviz_screeplot(data_num_table_afc)+
+  ggtitle("Gráfico de sedimentación") +
+  labs(x="Dimensiones",y="Porcentaje de varianza explicada")
+
+x2 <- fviz_contrib(data_num_table_afc, choice = "col", axes = 1:2) +
+  ggtitle("Contrib. columnas dos dimensiones")+
+  labs(x="Filas",y="Porcentaje de contribución")
+
+grid.arrange(x1,x2, ncol = 2)
+
+```
+```{r}
+#---------------------------------------------------------------
+
+#escalamos las variables
+
+performScaling= T # on/off para experimentar
+if (performScaling) {
+  # Loop sobre cada columna
+  for (colName in names(data_num)) {
+    # Comprueba si la columna es de datos numéricos.
+    if(class(data_num[,colName]) == 'integer' | class(data_num[,colName]) == 'numeric') {
+      # escala la columna.
+      data_num[,colName] = scale(data_num[,colName])
+    }
+  }
+}
+
+longitug_data_num <- length(data_num)
+
+#---------------------------------------------------------------
+```
+
+## 3.2. Distancia Euclídea
+
+En este gráfico se puede observar la distancia euclídes (distancia en el mapa de coordenadas entre dos valores) de cada coche (individualmente) con el resto de coches. A simple vista se pueden observar ciertas asociaciones entre diferentes grupos de coches, lo que nos indica que vamos por uen camino para poder segmentar.
+
+
+```{r}
+
+dist.eucl = dist(data_num, method = 'euclidean', upper = F)
+
+corrplot(as.matrix(dist.eucl), is.corr = FALSE, method = "color", tl.cex=0.6, tl.col="navy")
+
+
+```
+
+
+## 3.3. Agrupación en k-medios
+
+Realizamos la agrupación de los diferentes coches en función de sus coordenadas en el gráfico que componen ambas dimensiones, elegimos 6 grupos ya que previamente heos comprobado que es el que más se ajusta a nuestros requisitos de eficiencia y consistencia.
+
+```{r}
+set.seed(190698)
+g6 <- eclust(data_num[,-1], FUNcluster = "kmeans", stand=TRUE,
+                         hc_metric="euclidean", nstart=25, k=6)
+
+```
+
+\newpage
+
+## 3.4. Silueta
+
+Silueta de nuestra distribución de coches con una media del ancho de silueta del 0.4.
+
+```{r}
+
+fviz_silhouette(g6)
+
+```
+
+# 4. Conclusiones
+De este breve resumen acerca del análisis factorial de correspondencias y agrupación y 'clusterización' se pueden obtener las siguientes conclusiones:
+
+* Las variables que hemos utilizado para realizar este trabajo son (pvp, cilindro, velocida, peso, cc), las demás fueron descartadas por su poco valor analítico o su poco interés estratégio y económico.
+
+* Del AFC llegamos a la conclusión de que dos dimensiones son más que suficientes para explicar la varianza total y que los _centímetros cúbicos_ y el _peso_ son las variables que más información aportan y las que se deberían toman en consideración a la hora de realizar una agrupación de los coches.
+
+* Del análisis de agrupación podemos comprobar que 6 son los grupos necesarios que hacen que se puedan cumplir con los requisitos exigidos (eficiencia y consistencia en la decisión).
+
+* Un camión de transporte de coches transporta entre 6 y 10 vehículos (al tener 125 vehículos implica que se necsitan entre 13 y 21 desplazamientos para transportar todos), nuestra agrupación en 6 grupos hace que tan solo se necesiten 14 desplazamientos para transportar todos los vehículos, lo cual hace evidente que nuestra agrupación es consistente y eficiente.
+
+
+
+
+
+\newpage
+
+# 5. Anexos: Coches por Grupo
+
+
+```{r}
+listado_coches <- g6$cluster
+listado_coches_grupo_1 <- listado_coches[listado_coches[] == 1]
+listado_coches_grupo_2 <- listado_coches[listado_coches[] == 2]
+listado_coches_grupo_3 <- listado_coches[listado_coches[] == 3]
+listado_coches_grupo_4 <- listado_coches[listado_coches[] == 4]
+listado_coches_grupo_5 <- listado_coches[listado_coches[] == 5]
+listado_coches_grupo_6 <- listado_coches[listado_coches[] == 6]
+```
+
+__Coches del grupo 1:__
+
+```{r}
+listado_coches_grupo_1
+```
+
+__Coches del grupo 2:__
+
+```{r}
+listado_coches_grupo_2
+```
+
+__Coches del grupo 3:__
+
+```{r}
+listado_coches_grupo_3
+```
+
+__Coches del grupo 4:__
+
+```{r}
+listado_coches_grupo_4
+```
+
+__Coches del grupo 5:__
+
+```{r}
+listado_coches_grupo_5
+```
+
+__Coches del grupo 6:__
+
+```{r}
+listado_coches_grupo_6
+```
