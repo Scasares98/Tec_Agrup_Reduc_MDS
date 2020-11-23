@@ -1,0 +1,494 @@
+---
+title: "Votos_AFC"
+author: "Sergio Casares"
+date: "14/11/2020"
+output:
+  pdf_document: default
+  html_document: default
+toc: yes
+---
+
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+
+# 1. Introducción al trabajo
+
+El trabajo consiste en el Análisis de Correspondencias a partir de los datos de una encuesta sobre los diferentes partidos políticos y los diferentes tipos de actividad laboral.
+
+Pero, ¿qué es hacer un análisis de correspondencias?
+
+El Análisis de Correspondencias, o por sus siglasc (ANACOR) es una técnica de reducción de la dimensión que persigue estudiar la asociación entre dos
+o más variables categóricas. En ese sentido, supone una extensión de
+las tablas de contingencia. Tratar de medir y de representar la relación
+existente entre las distintas caracter´ısticas de unas y otras.
+
+Su objetivo principal es representar en un espacio de dos dimensiones un conjunto de observaciones dadas en un espacio de dimensión
+mayor respetando las posiciones relativas entre los elementos; esas posiciones relativas están relacionadas con el grado de similitud de las
+variables, esto es, con su grado de asociación.
+
+# 2. Importamos librerias
+
+```{r}
+library(readr)
+library(FactoMineR)
+library(factoextra)
+library(ggplot2)
+library(corrplot)
+library(gplots)
+library(graphics)
+```
+
+
+# 3. Importamos los datos
+
+Creamos la matriz de los datos a partir del documento compartido por el profesor
+
+```{r}
+votos<-matrix(c(462,502,383,316,846,
+                441,857,544,376,639,
+                471,83,551,388,172,
+                576,606,616,478,499,
+                369,274,230,762,169), nrow = 5, ncol = 5)
+rownames(votos)<-c("Trabaja", "Domestico", "Parado", "Estudiante", "Jubilado")
+colnames(votos)<-c("PP", "PSOE", "UP", "Cs", "Otros")
+votos
+```
+
+Otra manera de crearlo:
+
+```{r}
+
+votos_otra_manera <- read_delim("AFC-votos.csv", delim =";")
+
+rownames(votos_otra_manera) <- c('Trabaja', 'Domestico', 'Parado', 'Estudiante', 'Jubilado')
+
+votos_otra_manera  <- votos_otra_manera[, !(names(votos_otra_manera) %in% "x")]
+
+votos_otra_manera <- as.table(as.matrix(votos_otra_manera))
+
+votos_otra_manera
+
+
+```
+
+### 3.1. Tratamientos de los datos
+
+Convertir los datos en formato tabla para poder trabajar con ellos.
+
+```{r}
+votos_tab <- as.table(as.matrix(votos))
+
+votos_scol <- read_delim("AFC-votos.csv", 
+                        ";", escape_double = FALSE, trim_ws = TRUE)
+
+votos_scol <- votos_scol[,2:6]
+votos_scol <- as.table(as.matrix(votos_scol))
+votos_scol
+```
+
+# 4. EDA (Exploratory Data Analysis)
+
+A continuación, realizaremos un análisis exploratorio de nuestra tabla de datos, para este análisis, realizaremos tres apartados:
+
+* Summary: donde aparecen valores estadíticos básicos acerca de cada una de las columnas, en este caso (partidos políticos).
+
+* Ballloonplot: donde se visualizan los tamaños de los valores en comparación con el total, un mayot tamaño del circulo indica un mayor número de observaciones, además, tanto en las columnas como filas, el rectángulo gris indica el tamaños del conjunto de los valores para el total de la fila o columna.
+
+* Mosaicplot: divide y visualiza por columnas el conjunto de los datos, una mayor longitud del paralelogramo indica una mayor cantidad de observaciones, el color indica los residuos estandarizados para cada uno de los valores, el color azul indica que el valor observado es mayor que el esperado para datos aleatorios y que el color rojo indica que el valor esperado es menor que el esperado para datos aleatorios.
+
+```{r}
+summary(votos)
+
+balloonplot(t(votos_tab), main ="Votos", xlab ="", ylab="",
+            label = FALSE, show.margins = FALSE)
+
+mosaicplot(votos_tab, shade = TRUE, las=2,
+           main = "Votos")
+```
+
+# 5. AFC (Análisis Factorial de Correspondencias)
+
+### 5.1. Contraste de Independencia Chi-cuadrado
+
+Diremos que una tabla es homogénea
+cuando las variables analizadas sean estadísticamente independientes. El contraste empleado es el conocido como de independencia, apoyado en la distribución de X^2.
+
+
+```{r}
+chisq <- chisq.test(votos_tab)
+chisq
+```
+
+Del resultado del test de Chi-cuadrado podemos obtener las siguientes conclusiones:
+
+* df = 16, indica los grados de libertad (nºcol -1) * (nºfilas -1), los grados de libertad son la cantidad de información provista por los datos que se pueden usar para preciar los parámetros desconocidos de la población y calcular la variabilidad de las estimaciones. Unos datos que presenten 25 grados de libertad puede afirmarse que los datos siguen una distribución normal.
+
+* X-squared  = 1704.3 indica el valor que se sitúa en el eje X por lo que su...
+
+* p-values = 2.2e-16 es cercano a cero, lo que me indica que el valor de equivocarme es muy bajo y me dice que no son independientes (lo afirmo), entonces puedo afirmar que son dependientes.
+
+
+#### 5.1.A Analisis de correspondencias
+
+Una vez observada la existencia de relaciones entre categorías, el análisis de correspondencias nos permitirá identificar cuáles son de una manera sencilla en un espacio de dos dimensiones. La función CA() del paquete FactoMineR simplifica sobremanera la tarea del cálculo de las coordenadas de filas y columnas.
+
+Este análisis tan completo nos aporta una gran información:
+
+* Análisis de Chi-cuadrado
+
+* Eigenvalues
+
+* Varianza y variaza acumulada de las dimensiones
+
+* Varianza de cada valor de fila y columna (Iner*1000)
+
+* Dim1 y Dim2 indican las coordenadas de cada factor a las dimensiones
+
+* Ctr = contribución a la explicación en tanto por ciento (%) a cada una de las dimensiones del sistema
+
+* Cos2 = calidad de la representación a la dimensión (Estudiante está un 80% explicado por la primera dimensión, y un 19% en la segunda, y el 1% restante por las dimensiones)
+
+
+```{r}
+votos_afc = CA(votos_tab, graph=FALSE)
+print(votos_afc)
+
+summary(votos_afc, nb.dec = 2, ncp = 2)
+```
+
+### 5.2. Interpretación analisis Correspondencias - Traza
+
+Para poder continuar con el análisis, debemos recurrir a la traza de la tabla, que no es más que la suma de todos sus autovalores, cuya raíz indica el coecifiente de correlación entre filas y columnas.
+
+```{r}
+#Nivel de asociación entre filas y columnas
+autov = get_eigenvalue(votos_afc)
+traza = sum(autov[,1]) 
+cor.coef = sqrt(traza)
+cor.coef
+```
+
+La correlación se puede considerar importante a partir de 0.2, por lo que al obtener un valor de 0.38 podemos rechazar la hipótesis de independencia entres filas y columnas (es decir, son dependientes), lo cual nos indica que podemos seguir con el análisis.
+
+
+### 5.3. Autovalores y gráfico de sedimentación
+
+* Autovector: son los vectores no nulos que, cuando son transformados por el operador, dan lugar a un múltiplo escalar de sí mismos, con lo que no cambian su dirección.
+
+* Autovalor: Este escalar (lambda) recibe el nombre valor propio o autovalor.
+
+
+```{r}
+autoval = get_eigenvalue(votos_afc)
+head(round(autoval, 2))
+
+#screeplot:
+fviz_screeplot(votos_afc)+
+  ggtitle("Gráfico de sedimentación") +
+  labs(x="Dimensiones",y="Porcentaje de varianza explicada")
+```
+
+En la primera tabla podemos observar los autovalores de cada una de las dimensiones del sistema, es decir, el valor de lambda por que el que se multiplica cada autovector. 
+
+También podemos observar la variaza explicada por cada dimensión, con la primera dimensión obtenemos el 64.65 del total de la varianza explicada y con la segunda dimensión un 24.45 del total de la varianza no explicada por la dimensión uno. La varianza acumulada de ambas dimensiones es el del 89.10, por lo que podríamos afirmar que con dos dimensiones se puede explicar cerca del 90% de la varianza de los datos, por lo que creo que aumentar una dimensión más (un 50% más de dimensiones, solo aumentamos un 10% la varianza explicada del sistema).
+
+Luego se observa gráficamente la varianza explicada por cada una de las dimensiones.
+
+
+
+### 5.4. Gráfico de dispersión del análisis de correspondencias entre filas y columnas
+
+Los siguientes dos gráficos, que aportan la misma información, representan en un gráfico de dispersión las coordenadas de cada dimesión.
+
+Los puntos cercanos indican relaciones más fuertes que puntos lejanos. Es importante indicar que la mayor o menor cercanía entre puntos de filas y de columnas no puede interpretarse del mismo modo; para conocer la asociación entre filas y columnas debe acudirse a la representación asimétrica, en la que las filas se representan en el espacio de las columnas y viceversa.
+
+```{r}
+plot.CA(votos_afc, axes = c(1,2), col.row = "blue", col.col = "red")
+
+#Mapa 2D
+fviz_ca_biplot(votos_afc)+
+  theme_minimal()+
+  ggtitle("Mapa 2D. Análisis de correspondencias simples")
+```
+
+
+### 5.5 Análisis de correspondencia de filas y columnas con las dimensiones
+
+a
+
+#### 5.5.A. Análisis de correspondencia de filas respecto de las dimensiones
+
+```{r}
+
+#Filas
+
+filas=get_ca_row(votos_afc)
+filas
+head(filas)
+
+```
+
+
+#### Coordenadas de las filas a las dimensiones (coord)
+
+Coordenadas de las filas a las dimensiones (X e Y)
+
+```{r}
+
+fviz_ca_row(votos_afc, col.row="steelblue", shape.row = 15)+
+  ggtitle("Análisis de correspondecias simples. Mapa de puntuación de filas")
+
+
+```
+
+
+#### Contribución de las filas a las dimensiones (ctr)
+
+Contribución de las filas a cada una de las dimensiones del sistema
+
+```{r}
+#Contribución de las filas a la dimensión
+corrplot(filas$contrib, is.corr=FALSE)
+
+#Contribución de las filas a cada una de las dimensiones
+
+fviz_contrib(votos_afc, choice = "row", axes = 1)+
+  ggtitle("Contribución de las filas a la 1ª dimensión")+
+  labs(x="Filas",y="Porcentaje de contribución")  
+
+
+fviz_contrib(votos_afc, choice = "row", axes = 2) +
+  ggtitle("Contribución de las filas a la 2ª dimensión")+
+  labs(x="Filas",y="Porcentaje de contribución")
+
+fviz_contrib(votos_afc, choice = "row", axes = 1:2) +
+  ggtitle("Contribución de las filas a las dos dimensiones")+
+  labs(x="Filas",y="Porcentaje de contribución")
+```
+
+
+
+#### Calidad de representación de las filas a las dimensiones (cos2)
+
+Calidad de la representación de las filas a cada una de las dimensiones
+
+```{r}
+
+# Calidad de la representación de las filas: el Cos2
+corrplot(filas$cos2, is.corr=FALSE, title = 'Calidad de la representación de las filas: el Cos2' )
+
+
+fviz_cos2(votos_afc, choice = "row", axes = 1:2)+
+  ggtitle("Cos2 de las dos dimensiones")+
+  labs(y="Cos2 - calidad de la representación")
+
+
+```
+
+
+#### 5.5.B. Análisis de correspondencia de filas respecto de las dimensiones
+
+```{r}
+#Columnas
+
+columnas=get_ca_col(votos_afc)
+columnas
+head(columnas)
+
+```
+
+#### Coordenadas de las filas a las dimensiones (coord)
+
+Coordenadas de las filas a las dimensiones
+
+```{r}
+
+#Coordenadas de las COLUMNAS a las dimensiones
+fviz_ca_col(votos_afc, col.coord="red", shape.row = 15)+
+  ggtitle("Análisis de correspondecias simples. Mapa de puntuación de columnas")
+
+```
+
+
+#### Contribución de las columnas a las dimensiones (ctr)
+
+Contribución de las columnas a cada una de las dimensiones del sistema
+
+```{r}
+#Contribución de las columnas a la dimensión
+corrplot(columnas$contrib, is.corr=FALSE)
+
+
+#Contribución de las filas a cada una de las dimensiones
+fviz_contrib(votos_afc, choice = "col", axes = 1)+
+  ggtitle("Contribución de las filas a la 1ª dimensión")+
+  labs(x="Filas",y="Porcentaje de contribución")  
+
+
+fviz_contrib(votos_afc, choice = "col", axes = 2) +
+  ggtitle("Contribución de las filas a la 2ª dimensión")+
+  labs(x="Filas",y="Porcentaje de contribución")
+
+fviz_contrib(votos_afc, choice = "col", axes = 1:2) +
+  ggtitle("Contribución de las filas a las dos dimensiones")+
+  labs(x="Filas",y="Porcentaje de contribución")
+```
+
+
+#### Calidad de representación de las filas a las dimensiones (cos2)
+
+Calidad de la representación de las columnas respecto de la dimensión
+
+```{r}
+
+# Calidad de la representación de las columnas: el Cos2
+
+corrplot(columnas$cos2, is.corr=FALSE, title = 'Calidad de la representación de las columnas: el Cos2' )
+
+
+fviz_cos2(votos_afc, choice = "col", axes = 1:2)+
+  ggtitle("Cos2 de las dos dimensiones")+
+  labs(y="Cos2 - calidad de la representación")
+
+
+```
+
+
+### 5.6. Representación conjunta de filas y columnas
+
+#### 5.6.A. Gráfico simétrico
+
+Permite observar, en virtud de la distancia entre los puntos, la relación entre los elementos de las filas con los ejes y la de los puntos de columna con los mismos ejes; sin embargo, sólo permite intuir, no probar ni comprobar, la relación entre filas y columnas.
+
+
+```{r}
+
+# Representación conjunta de filas y columnas
+fviz_ca_biplot(votos_afc)+
+  theme_minimal()
+
+```
+
+
+#### 5.6.B. Gráficos asimétricos
+
+En el caso de un gráfico asimétrico, los puntos de filas (o de columnas) se representan a partir de las coordenadas estándar, S, y los perfiles de la otra parte a partir de las coordenadas principales, P. Para un determinado eje, la relación entre S y P viene dada por:
+
+P=autovalor*raiz(×S)
+
+siendo P la coordenada principal de la fila (o la columna) en el eje, y autovalor el correspondiente del eje.
+
+
+#### Análisis de correspondencias simples 
+
+a
+
+```{r}
+
+
+fviz_ca_biplot(votos_afc, map ="rowprincipal", arrow = c(TRUE, TRUE))+ 
+  ggtitle("Análisis de correspondencias simples. Gráfico asimétrico.")
+
+
+
+fviz_ca_biplot(votos_afc, map ="colprincipal", arrow = c(TRUE, TRUE))+ 
+  ggtitle("Análisis de correspondencias simples. Gráfico asimétrico.")
+
+```
+
+
+En estos gráficos se pueden observar claras relaciones midiendo el ángulo que forman cada variable:
+
+* Otros con Estudiantes
+
+* Psoe con Doméstico
+
+* PP con Jubilado
+
+* Cs con Parado
+
+* Podemos con Trabaja
+
+#### Gráfico de contibuciones
+
+a
+
+
+```{r}
+
+
+fviz_ca_biplot(votos_afc, map ="rowgreen",
+               arrow = c(TRUE, FALSE))
+
+
+fviz_ca_biplot(votos_afc, map ="colgreen",
+               arrow = c(TRUE, FALSE))
+
+
+```
+
+
+En estos gráficos se pueden observar claras asociaciones entre cada variable:
+
+* Otros con Estudiantes
+
+* Psoe con Doméstico
+
+* PP con Jubilado
+
+* Cs con Parado
+
+* Podemos con Trabaja
+
+# 6.Conclusiones
+
+En el __análisis exploratorio__ podemos observar la no distribución equitativa de los valores, lo que nos podría indicar cierta dependencia, pero se necesitan más análisis para poder demostrarlo.
+
+__Chi-cuadrado y la traza__ nos indicaban que los valores eran dependientes entre filas y columnas (y también entre los propios valores), por lo que se demostraba que se podía realizar el ANACOR de los datos que se nos presentaba.
+
+
+En el __análisis de correspondencias__ y en el gráfico de sedimentación podemos concluir que dos dimensiones son más que suficientes para poder explicar la varianza total de los datos (con X e Y obtenemos el 90% de la varianza total).
+
+A __nivel gráfico__, hemos corroborado lo que se explicaba con anterioridad, se observan la contribución tanto de las filas y las columnas a las dimensiones (ctr), su calidad de representación (cos2) y sus coordenadas en cada una de las dimensiones.
+
+
+__Comparando ambos ejes (filas y columnas)__ se pueden llegar a ciertas conclusiones en relación al nivel de asociación: 
+
+* Otros con Estudiantes
+
+* Psoe con Doméstico
+
+* PP con Jubilado
+
+* Cs con Parado
+
+* Podemos con Trabaja
+
+
+
+# 7.Bibliografía
+
+Apuntes teóricos y prácticos proporcionados por el profesor
+
+Analisis Factorial de Correspondencias:
+
+* http://www3.uah.es/fjcb/Apoyo_a_la_Docencia/CBAM/Temas/Analisis_Factorial_de_Correspondencias.pdf
+
+* https://es.wikipedia.org/wiki/An%C3%A1lisis_de_correspondencias_m%C3%BAltiples
+
+Eigenvalues & Eigenvectors:
+
+* https://en.wikipedia.org/wiki/Eigenvalues_and_eigenvectors
+
+* https://es.wikipedia.org/wiki/Vector_propio_y_valor_propio
+
+* https://jlminchole.es/wordpress/autovalores-y-autovectores/
+
+
+Grados de Libertad:
+
+* https://www.webyempresas.com/grados-de-libertad-en-estadistica/#:~:text=Los%20GL%20(grados%20de%20libertad,las%20observaciones%20de%20la%20muestra.
+
+
