@@ -11,15 +11,17 @@ library(PerformanceAnalytics)
 library(FactoMineR)
 library(gplots)
 library(graphics)
+library(dplyr)
 
 
 data <- read_sav("tterreno.sav")
 data <- data.frame(data[,-1], row.names = make.names(data$modelo, unique = T))
 data <- data[-1]
-View(data)
+#View(data)
 
 names(data)
 str(data)
+
 
 dim(data)
 nrow(data)
@@ -30,20 +32,13 @@ sapply(data, function(x) sum(is.na(x)))
 #marca   modelo      pvp cilindro       cc potencia      rpm     peso   plazas   cons90  cons120  consurb velocida acelerac    acel2 
 #0        0        0        0        0        0        0        2        0       10       15        7        3       46        0 
 
-data <- na.omit(data)
-cor(data)
 
 #---------------------------------------------------------------
-#Dataframe Numéricas
-lista_variables = c("pvp","cilindro","cc","rpm","peso","plazas","cons90","cons120","consurb","velocida","acelerac")
-data_numericas <- data[lista_variables]
-data_numericas <- as.data.frame(data_num)
+
 
 
 #quitamos otras variables
 
-
-lista_variables_1 = c("pvp","cc","velocida",'peso','plazas','cilindro')
 lista_variables_1 = c("pvp","cc","velocida",'peso','cilindro')
 
 data_num <- data[lista_variables_1]
@@ -52,12 +47,141 @@ data_num <- as.data.frame(data_num)
 data_num <- na.omit(data_num)
 dim(data_num)
 
+#Dataframe Numéricas
+lista_variables = c("pvp","cilindro","cc","rpm","peso","plazas","cons90","cons120","consurb","velocida","acelerac")
+data_numericas <- data[lista_variables]
+data_numericas <- as.data.frame(data_num)
+dim(data_numericas)
+
+
 #formato final
 #--------------------------
-#---------------------------------------------------------------
 #summary
 summary(data_num)
 cor(data_num)
+#---------------------------------------------------------------
+
+##### EDA VARIABLES SELECCIONADAS #####
+
+corrplot(cor(data_num), type = 'lower', method = 'shade' )
+
+c("pvp","cc","velocida",'peso','cilindro')
+
+#PVP
+
+ggplot(data_num, aes(x=data_num$pvp)) + geom_histogram(bins = 120) +
+  ggtitle('Distribución de los precios de los coches') 
+  
+  
+hist(data_num$pvp, 
+     col = 'royalblue2',
+     border = 'black',
+     prob = TRUE,
+     main = 'Precio de los coches',
+     breaks = 20)
+lines(density(data_num$pvp),
+      lwd = 3,
+      col = 'red')
+
+
+
+precio_dist <- sort.int(data_num$pvp, decreasing = TRUE)
+#View(precio_dist)
+
+precio_dist_0 <- as.data.frame(precio_dist[0:20])
+colnames(precio_dist_0)[1] <- 'valores'
+
+precio_dist_1 <- as.data.frame(precio_dist[21:40])
+precio_dist_2 <- as.data.frame(precio_dist[41:60])
+precio_dist_3 <- as.data.frame(precio_dist[61:80])
+precio_dist_4 <- as.data.frame(precio_dist[81:100])
+precio_dist_5 <- as.data.frame(precio_dist[101:120])
+
+
+
+ggplot() + geom_histogram(precio_dist_0, aes(x = valores))
+
+  geom_histogram(data = precio_dist, binwidth = 0.1, fill = "yellow") +
+  theme_classic()
+
+  
+  
+  ggplot() +
+    geom_histogram(data = diamonds[diamonds$cut !='Premium',],  mapping = aes(carat), binwidth = 0.1, fill = "blue") +
+    geom_histogram(data = diamonds[diamonds$cut =='Premium',],  mapping = aes(carat), binwidth = 0.1, fill = "yellow") +
+    theme_classic()
+
+
+#cc
+
+ggplot(data_num, aes(x=data_num$cc)) + geom_histogram() +
+  ggtitle('Distribución de los cc de los coches') 
+
+
+hist(data_num$cc, 
+     col = 'royalblue2',
+     border = 'black',
+     prob = TRUE,
+     main = 'Precio de los coches',
+     breaks = 50)
+lines(density(data_num$cc),
+      lwd = 3,
+      col = 'red')
+
+#velocida
+
+ggplot(data_num, aes(x=data_num$velocida)) + geom_histogram(bins = 120) +
+  ggtitle('Distribución de la velocidad de los coches') 
+
+hist(data_num$velocida, 
+     col = 'royalblue2',
+     border = 'black',
+     prob = TRUE,
+     main = 'Precio de los coches',
+     breaks = 120)
+lines(density(data_num$velocida),
+      lwd = 3,
+      col = 'red')
+
+
+#peso
+
+ggplot(data_num, aes(x=data_num$peso)) + geom_histogram(bins = 120) +
+  ggtitle('Distribución del peso de los coches')
+
+hist(data_num$peso, 
+     col = 'royalblue2',
+     border = 'black',
+     prob = TRUE,
+     main = 'Precio de los coches',
+     breaks = 120)
+lines(density(data_num$peso),
+      lwd = 3,
+      col = 'red')
+
+#cilindro
+
+ggplot(data_num, aes(x=data_num$cilindro)) + geom_histogram() +
+  ggtitle('Distribución del nº de cilindros de los coches') +
+  abline(v = 5, lwd = 10)
+
+hist(data_num$cilindro, 
+     col = 'royalblue2',
+     border = 'black',
+     prob = TRUE,
+     main = 'Precio de los coches')
+lines(density(data_num$cilindro),
+      lwd = 3,
+      col = 'red')
+
+
+
+
+
+
+
+
+
 
 ## ACP ##
 
