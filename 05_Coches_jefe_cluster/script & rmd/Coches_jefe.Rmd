@@ -1,0 +1,294 @@
+---
+title: "Cluster coches del Jefe"
+author: "Sergio Casares"
+date: "23/11/2020"
+output:
+  pdf_document:
+    toc: true
+  html_document:
+    df_print: paged
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(out.width = '80%', out.height='80%', fig.align = "center") 
+```
+
+
+\newpage
+
+# 1. Introducción al trabajo
+
+Asignar de la forma más eficiente y consistente los distintos vehículos, agrupándolos en virtud de las características que ud. considere oportunas. 
+
+El objetivo de este trabajo será el de satisfacer la necesidad de nuestro jefe de 'clusterizar' los coches adquiridos en un número determinado de grupos con el fin de que estos puedan ser guardados en hasta un máximo de 10 garajes que tiene nuestro jefe.
+
+
+# 2. Selección a priori de variables y número de clústers
+
+Recordemos previamente las variables que utilizamos y que consideramos importantes en el anterior trabajo:
+
+Precio de venta al público (pvp), Número de cilindros (cilindro), Velocidad máxima (velocida), Peso (peso), Centímetros cúbicos del motor (cc).
+
+
+__Selección del número de clústers:__
+
+Aunque el análisis deba realizarse por similitudes entre observaciones, se pueden tener en cuenta otros parámetros como la estrategia y el enfoque económico a la hora de hacer el reparto de los coches, deberíamos tener las siguientes condiciones en cuenta:
+
+* El peso del vehículo afecta a la hora realizar el transporte (unos coches necesitarán un transporte con más cuidado o con camiones más pesados, lo que encarece el desplazamiento).
+
+* Se debe tener en cuenta la capacidad máxima de cada garaje, que es de 5 vehículos, pero observando el mapa (https://www.google.com/maps/d/u/0/viewer?mid=16dTDuU6f4K3HI3C7vQtxBUPB_xcGkrhW&ll=45.84097027564832%2C3.994010199999991&z=6) de la distribuciónn de los garajesse pueden observar los siguientes grupos.
+
+    * Tres garajes en Niza y alrededores (máximo 45 coches)
+
+    * Dos garajes muy cercanos en París (máximo 30 coches)
+    
+    * Dos garajes muy cercanos en Suiza (máximo 30 coches)
+    
+    * Un garaje en Andorra (máximo 15 coches)
+    
+    * Un garaje en La Rochelle (Francia) (máximo 15 coches)
+    
+    * Un garaje en Cócega (Italia) (máximo 15 coches), el cual se encuentra muy cercano de los tres garajes de Niza.
+
+* Hay que tener en cuenta además el número de coches que puede desplazar el camión (entre 6 y 10), para que cada clúster tenga un número múltiplo de coches y así evitar desplazamientos del camión ineficientes (que no esté lleno).
+
+
+Haciendo este análisis previo, se pueden observar hasta 6 grupos bien diferenciados donde podrán ser almacenados los coches.
+
+
+```{r}
+library(readr)
+library(factoextra)
+library(ggplot2)
+library(cluster)
+library(gridExtra)
+library(corrplot)
+library(haven)
+library(dplyr)
+library(PerformanceAnalytics)
+library(FactoMineR)
+library(gplots)
+library(graphics)
+library(grid)
+library(gridExtra)
+library(ggplotify)
+```
+
+```{r}
+data <- read_sav("tterreno.sav")
+data <- data.frame(data[,-1], row.names = make.names(data$modelo, unique = T))
+data <- data[-1]
+
+```
+
+```{r}
+
+#quitamos otras variables
+
+
+lista_variables_1 = c("pvp","cc","velocida",'peso','cilindro')
+
+data_num <- data[lista_variables_1]
+data_num <- as.data.frame(data_num)
+data_num <- na.omit(data_num)
+
+
+```
+
+# 3. Desarrollo del trabajo
+
+Atendiendo a igualdad de características entre las observaciones, por medio de la distancia euclídea agrupar los coches en grupos homogéneos.
+
+```{r}
+knitr::opts_chunk$set(out.width = '60%', out.height='60%', fig.align = "center") 
+```
+
+
+## 3.1. AFC
+
+De este breve análisis podemos discernir que dos dimensiones son más que suficientes para poder explicar la varianza de toda la información disponible, además, los centímetros cúbicos y el peso son las dos variables que más aportan a explicar la varianza total, lo que nos podría indicar que la agrupación de los coches pudiera seguir alguna de estas dos variables como método decisorio.
+
+```{r}
+
+
+data_num_table <- as.table(as.matrix(data_num))
+
+chisq <- chisq.test(data_num_table)
+
+data_num_table_afc = CA(data_num_table, graph=FALSE)
+
+autov = get_eigenvalue(data_num_table_afc)
+traza = sum(autov[,1]) 
+cor.coef = sqrt(traza)
+
+autoval = get_eigenvalue(data_num_table_afc)
+
+#screeplot:
+x1 <- fviz_screeplot(data_num_table_afc)+
+  ggtitle("Gráfico de sedimentación") +
+  labs(x="Dimensiones",y="Porcentaje de varianza explicada")
+
+x2 <- fviz_contrib(data_num_table_afc, choice = "col", axes = 1:2) +
+  ggtitle("Contrib. columnas dos dimensiones")+
+  labs(x="Filas",y="Porcentaje de contribución")
+
+grid.arrange(x1,x2, ncol = 2)
+
+```
+
+
+
+```{r}
+#---------------------------------------------------------------
+
+#escalamos las variables
+
+performScaling= T # on/off para experimentar
+if (performScaling) {
+  # Loop sobre cada columna
+  for (colName in names(data_num)) {
+    # Comprueba si la columna es de datos numéricos.
+    if(class(data_num[,colName]) == 'integer' | class(data_num[,colName]) == 'numeric') {
+      # escala la columna.
+      data_num[,colName] = scale(data_num[,colName])
+    }
+  }
+}
+
+longitug_data_num <- length(data_num)
+
+#---------------------------------------------------------------
+```
+
+## 3.2. Distancia Euclídea
+
+En este gráfico se puede observar la distancia euclídea (distancia en el mapa de coordenadas entre dos valores) de cada coche (individualmente) con el resto de coches. A simple vista se pueden observar ciertas asociaciones entre diferentes grupos de coches, lo que nos indica que vamos por uen camino para poder segmentar.
+
+```{r}
+knitr::opts_chunk$set(out.width = '75%', out.height='75%', fig.align = "center") 
+```
+
+```{r}
+
+dist.eucl = dist(data_num, method = 'euclidean', upper = F)
+
+corrplot(as.matrix(dist.eucl), is.corr = FALSE, method = "color", tl.cex=0.6, tl.col="navy")
+
+
+```
+
+
+## 3.3. Agrupación en k-medios
+
+Realizamos la agrupación de los diferentes coches en función de sus coordenadas en el gráfico que componen ambas dimensiones, elegimos 5 grupos ya que previamente hemos comprobado que es el que más se ajusta a nuestros requisitos de eficiencia y consistencia.
+
+```{r}
+knitr::opts_chunk$set(out.width = '100%', out.height='100%', fig.align = "center") 
+```
+
+
+```{r}
+set.seed(190698)
+g6 <- eclust(data_num[,-1], FUNcluster = "kmeans", stand=TRUE,
+                         hc_metric="euclidean", nstart=25, k=5)
+
+```
+
+\newpage
+
+## 3.4. Silueta
+
+```{r}
+knitr::opts_chunk$set(out.width = '70%', out.height='70%', fig.align = "center") 
+```
+
+Silueta de nuestra distribución de coches con una media del ancho de silueta del 0.39 y donde aparecen el número de observaciones por grupo, lo que nos servirá posteriormente para distribuir los coches por cada garaje.
+
+```{r}
+
+fviz_silhouette(g6)
+
+```
+
+# 4. Conclusiones
+
+El reparto , en base a similitud entre observaciones y atendiendo a la distribución de los garajes debe hacerse de la siguiente manera:
+
+
+  * Tres garajes en Niza -> Los 45 coches del grupo 2 (15 en cada garaje)
+
+  * Dos garajes en París -> Los 27 (+1) coches del grupo 4 + uno del grupo 1 (14 y 14 en cada garaje)
+    
+  * Un garaje en La Rochelle (Francia) -> 15 de los 16 coches del grupo 1 (por falta de aforo y su cercania en el mapa, un coche se moverá al grupo de los garajes en la ciudad de París, grupo 4).
+    
+  * Dos garajes en Suiza -> Los 19 coches del grupo 5 más los 5 coches que por exceso de valores nulos en el dataframe no se les ha podido clasificar. (12 en cada garaje)
+    
+  * Un garaje en Cócega (Italia) -> Los 13 coches del grupo 3, además, el grupo tres se asemeja al grupo 2, lo que hace que se sitúen ambos en garajes cercano.
+    
+  * Un garaje en Andorra -> Vacío
+  
+Con esta agrupación, ocupamos 125 plazas de las 135 que conforman los 9 garajes seleccionados. En total se necesitarían unos 15 desplazamientos de camión, número que ha conseguido reducirse gracias a una distribución uniforme por cada uno de los garajes. 
+    
+  
+
+\newpage
+
+# 5. Anexos: Coches por Grupo
+
+
+```{r}
+listado_coches <- g6$cluster
+listado_coches_grupo_1 <- listado_coches[listado_coches[] == 1]
+listado_coches_grupo_2 <- listado_coches[listado_coches[] == 2]
+listado_coches_grupo_3 <- listado_coches[listado_coches[] == 3]
+listado_coches_grupo_4 <- listado_coches[listado_coches[] == 4]
+listado_coches_grupo_5 <- listado_coches[listado_coches[] == 5]
+listado_coches_grupo_6 <- listado_coches[listado_coches[] == 6]
+```
+
+__Coches del grupo 1:__
+
+La Rochelle (Francia). Mover un coche de aquí al grupo 4.
+
+```{r}
+listado_coches_grupo_1
+```
+
+__Coches del grupo 2:__
+
+Tres garajes en Niza.
+
+```{r}
+listado_coches_grupo_2
+```
+
+\newpage
+
+__Coches del grupo 3:__
+
+Un garaje en Cócega (Italia).
+
+```{r}
+listado_coches_grupo_3
+```
+
+__Coches del grupo 4:__
+
+Dos garajes en París. Más el coche adherido del grupo 1.
+
+```{r}
+listado_coches_grupo_4
+```
+
+__Coches del grupo 5:__
+
+Dos garajes en Suiza. Más los cinco coches no analizados en el sistema por falta de valores.
+
+```{r}
+listado_coches_grupo_5
+```
+
+
