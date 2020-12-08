@@ -1,0 +1,508 @@
+---
+title: "Análisis clústers y garajes de los coches del Jefe"
+author: "Sergio Casares"
+date: "23/11/2020"
+output:
+  pdf_document:
+    toc: true
+  html_document:
+    df_print: paged
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(out.width = '80%', out.height='80%', fig.align = "center") 
+```
+
+
+\newpage
+
+# 1. Introducción al trabajo
+
+Finalmente, después de haber solucionado los problemas de selección de variables y tratamiento de valores perdidos, debe proceder a asignar los coches a las viviendas de su jefe. En un máximo de cuatro páginas, indique de qué forma va a proceder y cuáles son las características tanto de los grupos que ha creado como de los vehículos que asigna a cada vivenda.
+
+
+# 2. Trabajo previo realizado y continuación
+
+__Selección del número de clústers:__
+
+En el trabajo anterior, obtuvimos que 5 era el número óptimo de clusters en función de los criterios de eficiencia y consistencia. 
+
+__Análisis de cada uno de los garajes:__
+
+A continuación, además de volver a exponer los grupos, nos centraremos en analizar las características de cada grupo, es decir, si un posible comprador quisiera un coche con ciertas características, por medio de este análisis sabría a qué garaje (o garajes) debería dirigirse.
+
+
+
+```{r}
+library(readr)
+library(factoextra)
+library(ggplot2)
+library(cluster)
+library(gridExtra)
+library(corrplot)
+library(haven)
+library(dplyr)
+library(PerformanceAnalytics)
+library(FactoMineR)
+library(gplots)
+library(graphics)
+library(grid)
+library(gridExtra)
+library(ggplotify)
+```
+
+```{r}
+data <- read_sav("tterreno.sav")
+data <- data.frame(data[,-1], row.names = make.names(data$modelo, unique = T))
+data <- data[-1]
+
+```
+
+```{r}
+#cons90
+
+mediana_cons90 <- median(data$cons90, na.rm=TRUE)
+data[is.na(data$cons90), "cons90"] <- mediana_cons90
+
+#cons120
+
+mediana_cons120 <- median(data$cons120, na.rm=TRUE)
+data[is.na(data$cons120), "cons120"] <- mediana_cons120
+
+#consurb
+
+mediana_consurb <- median(data$consurb, na.rm=TRUE)
+data[is.na(data$consurb), "consurb"] <- mediana_consurb
+
+#acelerac
+
+mediana_acelerac <- median(data$acelerac, na.rm=TRUE)
+data[is.na(data$acelerac), "acelerac"] <- mediana_acelerac
+
+
+lista_variables = c("pvp","cilindro","cc","potencia","rpm","peso","plazas",
+                    "cons90","consurb","velocida", "acel2")
+data_union <- data[lista_variables]
+data_union <- as.data.frame(data_union)
+
+
+data_union <- na.omit(data_union)
+
+```
+
+```{r}
+
+#quitamos otras variables (ESTO SIRVE PARA OBTENER LOS GRUPOS, NO BORRAR)
+
+
+lista_variables_1 = c("pvp","cc","velocida",'peso','cilindro')
+
+data_num <- data[lista_variables_1]
+data_num <- as.data.frame(data_num)
+data_num <- na.omit(data_num)
+```
+
+
+# 3. Desarrollo del trabajo
+
+Utilizaremos la distancia euclídea como método para agrupar los coches en grupos homogéneos.
+
+```{r}
+knitr::opts_chunk$set(out.width = '60%', out.height='60%', fig.align = "center") 
+```
+
+```{r}
+#---------------------------------------------------------------
+
+#escalamos las variables
+
+performScaling= T # on/off para experimentar
+if (performScaling) {
+  # Loop sobre cada columna
+  for (colName in names(data_num)) {
+    # Comprueba si la columna es de datos numéricos.
+    if(class(data_num[,colName]) == 'integer' | class(data_num[,colName]) == 'numeric') {
+      # escala la columna.
+      data_num[,colName] = scale(data_num[,colName])
+    }
+  }
+}
+
+longitug_data_num <- length(data_num)
+
+#---------------------------------------------------------------
+```
+
+
+## 3.1. Agrupación de los coches en clústers
+
+Realizamos la agrupación de los diferentes coches en función de sus coordenadas en el gráfico que componen ambas dimensiones, elegimos 5 grupos ya que previamente hemos comprobado que es el que más se ajusta a nuestros requisitos de eficiencia y consistencia.
+
+```{r}
+knitr::opts_chunk$set(out.width = '75%', out.height='75%', fig.align = "center") 
+```
+
+
+```{r}
+set.seed(190698)
+g6 <- eclust(data_num[,-1], FUNcluster = "kmeans", stand=TRUE,
+                         hc_metric="euclidean", nstart=25, k=5)
+
+```
+
+\newpage
+
+## 3.2. Análisis de las características de los grupos obtenidos
+
+Para analizar las características de los grupos se ha decidido a utilizar todas las variables que previamente se nos han facilitado con el fin de obtener una mayor información acerca de los grupos obtenidos.
+
+
+```{r}
+knitr::opts_chunk$set(out.width = '75%', out.height='75%', fig.align = "center") 
+```
+  
+```{r}
+listado_coches <- g6$cluster
+listado_coches_grupo_1 <- listado_coches[listado_coches[] == 1]
+listado_coches_grupo_2 <- listado_coches[listado_coches[] == 2]
+listado_coches_grupo_3 <- listado_coches[listado_coches[] == 3]
+listado_coches_grupo_5 <- listado_coches[listado_coches[] == 5]
+listado_coches_grupo_5 <- listado_coches[listado_coches[] == 5]
+listado_coches_grupo_6 <- listado_coches[listado_coches[] == 6]
+```
+
+```{r}
+#View(data_joined)
+
+data_joined = cbind(listado_coches, data_union)
+
+hola = data_joined %>%
+        group_by(listado_coches) %>%
+        dplyr::summarize(Mean_pvp = mean(pvp),
+                         Mean_cilindro = mean(cilindro),
+                         Mean_cc = mean(cc),
+                         Mean_potencia = mean(potencia),
+                         Mean_peso = mean(peso),
+                         Mean_plazas = mean(plazas),
+                         Mean_cons90 = mean(cons90),
+                         Mean_consurb = mean(consurb),
+                         Mean_velocidad = mean(velocida),
+                         Mean_acel2 = mean(acel2))
+
+
+hola = as.data.frame(hola)
+
+```
+
+```{r}
+hola_min = data_joined %>%
+        group_by(listado_coches) %>%
+        dplyr::summarize(Min_pvp = min(pvp),
+                         Min_cilindro = min(cilindro),
+                         Min_cc = min(cc),
+                         Min_potencia = min(potencia),
+                         Min_peso = min(peso),
+                         Min_plazas = min(plazas),
+                         Min_cons90 = min(cons90),
+                         Min_consurb = min(consurb),
+                         Min_velocidad = min(velocida),
+                         Min_acel2 = min(acel2))
+
+
+hola_min = as.data.frame(hola_min)
+
+```
+
+```{r}
+hola_max = data_joined %>%
+        group_by(listado_coches) %>%
+        dplyr::summarize(Max_pvp = max(pvp),
+                         Max_cilindro = max(cilindro),
+                         Max_cc = max(cc),
+                         Max_potencia = max(potencia),
+                         Max_peso = max(peso),
+                         Max_plazas = max(plazas),
+                         Max_cons90 = max(cons90),
+                         Max_consurb = max(consurb),
+                         Max_velocidad = max(velocida),
+                         Max_acel2 = max(acel2))
+
+
+hola_max = as.data.frame(hola_max)
+
+```
+
+
+```{r}
+g1 <- ggplot(hola, aes(x = hola$listado_coches, y = hola$Mean_pvp, label = hola$Mean_pvp)) +
+        geom_line(color = 'royalblue') +
+        geom_point(shape = 21, color = "black", fill = "navy", size = 5) +
+        scale_fill_discrete(name = "Grupos", type = c('1', '2', '3', '5', '5')) +
+        ggtitle("PVP por grupo") +
+        xlab("Grupo") +
+        ylab("PVP") +
+        theme_test()
+
+g2 <- ggplot(hola, aes(x = hola$listado_coches, y = hola$Mean_cilindro, label = hola$Mean_cilindro)) +
+        geom_line(color = 'royalblue') +
+        geom_point(shape = 21, color = "black", fill = "navy", size = 5) +
+        scale_fill_discrete(name = "Grupos", type = c('1', '2', '3', '5', '5')) +
+        ggtitle("Número de cilindros por grupo") +
+        xlab("Grupo") +
+        ylab("Número de cilindros") +
+        theme_test()
+
+g3 <- ggplot(hola, aes(x = hola$listado_coches, y = hola$Mean_cc, label = hola$Mean_cc)) +
+        geom_line(color = 'royalblue') +
+        geom_point(shape = 21, color = "black", fill = "navy", size = 5) +
+        scale_fill_discrete(name = "Grupos", type = c('1', '2', '3', '5', '5')) +
+        ggtitle("Número de cc por grupo") +
+        xlab("Grupo") +
+        ylab("Número de cc") +
+        theme_test()
+
+g4 <- ggplot(hola, aes(x = hola$listado_coches, y = hola$Mean_potencia, label = hola$Mean_potencia)) +
+        geom_line(color = 'royalblue') +
+        geom_point(shape = 21, color = "black", fill = "navy", size = 5) +
+        scale_fill_discrete(name = "Grupos", type = c('1', '2', '3', '5', '5')) +
+        ggtitle("Potencia por grupo") +
+        xlab("Grupo") +
+        ylab("Potencia") +
+        theme_test()
+
+g5 <- ggplot(hola, aes(x = hola$listado_coches, y = hola$Mean_peso, label = hola$Mean_peso)) +
+        geom_line(color = 'royalblue') +
+        geom_point(shape = 21, color = "black", fill = "navy", size = 5) +
+        scale_fill_discrete(name = "Grupos", type = c('1', '2', '3', '5', '5')) +
+        ggtitle("Peso por grupo") +
+        xlab("Grupo") +
+        ylab("Peso") +
+        theme_test()
+
+g6 <- ggplot(hola, aes(x = hola$listado_coches, y = hola$Mean_plazas, label = hola$Mean_plazas)) +
+        geom_line(color = 'royalblue') +
+        geom_point(shape = 21, color = "black", fill = "navy", size = 5) +
+        scale_fill_discrete(name = "Grupos", type = c('1', '2', '3', '5', '5')) +
+        ggtitle("Plazas por grupo") +
+        xlab("Grupo") +
+        ylab("Plazas") +
+        theme_test()
+
+g7 <- ggplot(hola, aes(x = hola$listado_coches, y = hola$Mean_cons90, label = hola$Mean_cons90)) +
+        geom_line(color = 'royalblue') +
+        geom_point(shape = 21, color = "black", fill = "navy", size = 5) +
+        scale_fill_discrete(name = "Grupos", type = c('1', '2', '3', '5', '5')) +
+        ggtitle("Consumo 90 km/h por grupo") +
+        xlab("Grupo") +
+        ylab("Consumo 90 km/h") +
+        theme_test()
+
+g8 <- ggplot(hola, aes(x = hola$listado_coches, y = hola$Mean_consurb, label = hola$Mean_consurb)) +
+        geom_line(color = 'royalblue') +
+        geom_point(shape = 21, color = "black", fill = "navy", size = 5) +
+        scale_fill_discrete(name = "Grupos", type = c('1', '2', '3', '5', '5')) +
+        ggtitle("Consumo Urbano por grupo") +
+        xlab("Grupo") +
+        ylab("Consumo Urbano") +
+        theme_test()
+
+g9 <- ggplot(hola, aes(x = hola$listado_coches, y = hola$Mean_velocidad, label = hola$Mean_velocidad)) +
+        geom_line(color = 'royalblue') +
+        geom_point(shape = 21, color = "black", fill = "navy", size = 5) +
+        scale_fill_discrete(name = "Grupos", type = c('1', '2', '3', '5', '5')) +
+        ggtitle("Velocidad por grupo") +
+        xlab("Grupo") +
+        ylab("Velocidad") +
+        theme_test()
+
+g10 <- ggplot(hola, aes(x = hola$listado_coches, y = hola$Mean_acel2, label = hola$Mean_acel2)) +
+        geom_line(color = 'royalblue') +
+        geom_point(shape = 21, color = "black", fill = "navy", size = 5) +
+        scale_fill_discrete(name = "Grupos", type = c('1', '2', '3', '5', '5')) +
+        ggtitle("Tiempo de aceleración por grupo") +
+        xlab("Grupo") +
+        ylab("Tiempo de aceleración") +
+        theme_test()
+    
+```
+
+
+```{r}
+
+grid.arrange(g1, g2, g3, g4,  ncol = 2, nrow = 2)
+grid.arrange(g5, g6, g7, g8, ncol = 2, nrow = 2)
+grid.arrange(g9, g10, ncol = 2, nrow = 2)
+
+```
+
+  
+# 4. Conclusiones
+    
+Del análisis gráfico que hemos realizado en el apartado se pueden extraer cierta conclusiones acerca de las características de los grupos creados:
+
+* El __PVP__ , el __Nº de Cilindros__, el __Nº de CC__, la __Potencia__ y el __Peso__ se comportan de la misma manera para los 5 cinco grupos, es decir, se puede observar como el grupo 1 es menor al grupo 2 y estos menor al grupo 3. Por otra parte el grupo cuatro es el que menor valor suele presentar mientras que el grupo 5 es el que presenta unos valores más altos en estas características. De hecho, si cambiamos la potencia por la velocidad, son las mismas variables que elegimos previamente para clusterizar.
+
+* El __Consumo 90 km/h__ y el __Consumo Urbano__ presentan similutes, los grupos 1, 2 y 3 presentan valores pareceidos, mientras que el grupo 4 presenta el valor más bajo y el 5 el más alto.
+
+* Las __Plazas del coche__ tienen valores cercanos entre los grupos 1, 2 y 3, el grupo 4 cuenta con el valor más bajo y el 5 el más alto.
+
+* La __Velocidad__ presenta unos valores parecidos para los grupos del 1 al 4, mientras que el grupo 5 se aleja y por mucho de los valores de los otros grupos.
+    
+* El __Tiempo de Aceleración__, al igual que la velocidad, presenta unos valores parecidos para los grupos del 1 al 4, mientras que el grupo 5 se aleja y por mucho de los valores de los otros grupos.
+
+
+De manera rápida y visual podemos observar que el grupo 5 el grupo con los mejores coches (los más caros, rápidos y potentes) mientras que el grupo 4 es justo todo lo contrario, seguido por el grupo 1, que cuenta con características similares.
+
+Por otro lado el grupo 2 y 3 presentan carcaterísticas similares, pero bien es cierto que el grupo 3 presenta mejores valores, sobre todo en el precio, el peso y en los cc.
+
+
+    
+\newpage
+
+# 5. Anexo: Análisis de los garajes (por grupos)
+
+En este Anexo expondremos detalladamente las características que componen cada uno de los garajes con el fin de que si un potencial inversor quisiera comprar un coche con ciertas características, a través de nuetsro análisis se le pueda dirigir a un garaje u a otro.
+
+
+### Garajes grupo 1
+
+La Rochelle (Francia).
+
+Valores Mínimos de los garajes del grupo 1
+
+```{r}
+garajes_grupo_1_min <- hola_min[1,2:11]
+garajes_grupo_1_min
+```
+
+Valores Medios de los garajes del grupo 1
+
+```{r}
+garajes_grupo_1_mean <- hola[1,2:11]
+garajes_grupo_1_mean
+```
+
+Valores Máximos de los garajes del grupo 1
+
+```{r}
+garajes_grupo_1_max <- hola_max[1,2:11]
+garajes_grupo_1_max
+```
+
+### Garajes grupo 2
+
+Tres garajes en Niza -> Los 45 coches del grupo 2 (15 en cada garaje)
+
+Valores Mínimos de los garajes del grupo 2
+
+```{r}
+garajes_grupo_2_min <- hola_min[2,2:11]
+garajes_grupo_2_min
+
+```
+
+Valores Medios de los garajes del grupo 2
+
+```{r}
+garajes_grupo_2_mean <- hola[2,2:11]
+garajes_grupo_2_mean
+```
+
+Valores Máximos de los garajes del grupo 2
+
+```{r}
+garajes_grupo_2_max <- hola_max[2,2:11]
+garajes_grupo_2_max
+
+```
+    
+### Garajes grupo 3
+
+Un garaje en Cócega (Italia).
+
+Valores Mínimos de los garajes del grupo 3
+
+```{r}
+garajes_grupo_3_min <- hola_min[3,2:11]
+garajes_grupo_3_min
+```
+
+Valores Medios de los garajes del grupo 3
+
+```{r}
+garajes_grupo_3_mean <- hola[3,2:11]
+garajes_grupo_3_mean
+
+```
+
+Valores Máximos de los garajes del grupo 3
+
+```{r}
+garajes_grupo_3_max <- hola_max[3,2:11]
+garajes_grupo_3_max
+
+```
+
+   
+    
+### Garajes grupo 4
+
+Dos garajes en París -> Los 27 (+1) coches del grupo 4 + uno del grupo 1 (14 y 14 en cada garaje).
+
+Valores Mínimos de los garajes del grupo 4
+
+```{r}
+garajes_grupo_4_min <- hola_min[4,2:11]
+garajes_grupo_4_min
+``` 
+
+Valores Medios de los garajes del grupo 4
+
+```{r}
+garajes_grupo_4_mean <- hola[4,2:11]
+garajes_grupo_4_mean
+```
+
+Valores Máximos de los garajes del grupo 4
+
+```{r}
+
+garajes_grupo_4_max <- hola_max[4,2:11]
+garajes_grupo_4_max
+
+```     
+    
+### Garajes grupo 5
+
+Dos garajes en Suiza -> Los 19 coches del grupo 5 más los 5 coches que por exceso de valores nulos en el dataframe no se les ha podido clasificar. (12 en cada garaje)
+
+Valores Mínimos de los garajes del grupo 5
+
+```{r}
+garajes_grupo_5_min <- hola_min[5,2:11]
+garajes_grupo_5_min
+``` 
+
+Valores Medios de los garajes del grupo 5
+
+```{r}
+
+garajes_grupo_5_mean <- hola[5,2:11]
+garajes_grupo_5_mean
+
+```
+
+Valores Máximos de los garajes del grupo 5
+
+```{r}
+garajes_grupo_5_max <- hola_max[5,2:11]
+garajes_grupo_5_max
+
+```     
+    
+    
+
+
